@@ -351,11 +351,12 @@ encodeWith :: ToRecord a => EncodeOptions -> Builder a
 encodeWith opts b =
     Builder.toLazyByteString $
     runBuilder b (encQuoting opts) (encDelimiter opts) (encUseCrLf opts)
+                 (encBackslashEscaping opts)
 
 -- | Encode a single record.
 encodeRecord :: ToRecord a => a -> Builder a
-encodeRecord r = Builder $ \ qtng delim useCrLf ->
-    Encoding.encodeRecord qtng delim (toRecord r) <> recordSep useCrLf
+encodeRecord r = Builder $ \ qtng delim bkEsc useCrLf ->
+    Encoding.encodeRecord qtng delim bkEsc (toRecord r) <> recordSep useCrLf
 
 -- | A builder for building the CSV data incrementally. Just like the
 -- @ByteString@ builder, this builder should be used in a
@@ -363,7 +364,7 @@ encodeRecord r = Builder $ \ qtng delim useCrLf ->
 -- a left-associative, `foldl'` style makes the building not be
 -- incremental.
 newtype Builder a = Builder {
-      runBuilder :: Quoting -> Word8 -> Bool -> Builder.Builder
+      runBuilder :: Quoting -> Word8 -> Bool -> Bool -> Builder.Builder
     }
 
 -- | @since 0.5.0.0
@@ -401,11 +402,12 @@ encodeByNameWith opts hdr b =
     Builder.toLazyByteString $
     encHdr <>
     runNamedBuilder b hdr (encQuoting opts) (encDelimiter opts)
-    (encUseCrLf opts)
+    (encBackslashEscaping opts) (encUseCrLf opts)
   where
     encHdr
       | encIncludeHeader opts =
-          Encoding.encodeRecord (encQuoting opts) (encDelimiter opts) hdr
+          Encoding.encodeRecord (encQuoting opts) (encDelimiter opts)
+                                (encBackslashEscaping opts) hdr
           <> recordSep (encUseCrLf opts)
       | otherwise = mempty
 
@@ -418,20 +420,21 @@ encodeDefaultOrderedByNameWith opts b =
     Builder.toLazyByteString $
     encHdr <>
     runNamedBuilder b hdr (encQuoting opts)
-    (encDelimiter opts) (encUseCrLf opts)
+    (encDelimiter opts) (encBackslashEscaping opts) (encUseCrLf opts)
   where
     hdr = Conversion.headerOrder (undefined :: a)
 
     encHdr
       | encIncludeHeader opts =
-          Encoding.encodeRecord (encQuoting opts) (encDelimiter opts) hdr
+          Encoding.encodeRecord (encQuoting opts) (encDelimiter opts)
+                                (encBackslashEscaping opts) hdr
           <> recordSep (encUseCrLf opts)
       | otherwise = mempty
 
 -- | Encode a single named record.
 encodeNamedRecord :: ToNamedRecord a => a -> NamedBuilder a
-encodeNamedRecord nr = NamedBuilder $ \ hdr qtng delim useCrLf ->
-    Encoding.encodeNamedRecord hdr qtng delim
+encodeNamedRecord nr = NamedBuilder $ \ hdr qtng delim bkEsc useCrLf ->
+    Encoding.encodeNamedRecord hdr qtng delim bkEsc
     (Conversion.toNamedRecord nr) <> recordSep useCrLf
 
 -- | A builder for building the CSV data incrementally. Just like the
@@ -440,7 +443,8 @@ encodeNamedRecord nr = NamedBuilder $ \ hdr qtng delim useCrLf ->
 -- a left-associative, `foldl'` style makes the building not be
 -- incremental.
 newtype NamedBuilder a = NamedBuilder {
-      runNamedBuilder :: Header -> Quoting -> Word8 -> Bool -> Builder.Builder
+      runNamedBuilder :: Header -> Quoting -> Word8 -> Bool -> Bool
+                      -> Builder.Builder
     }
 
 -- | @since 0.5.0.0

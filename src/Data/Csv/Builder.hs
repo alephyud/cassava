@@ -52,7 +52,8 @@ encodeHeaderWith = encodeRecordWith
 -- encoded.
 encodeRecordWith :: ToRecord a => EncodeOptions -> a -> Builder.Builder
 encodeRecordWith opts r =
-    Encoding.encodeRecord (encQuoting opts) (encDelimiter opts) (toRecord r)
+    Encoding.encodeRecord (encQuoting opts) (encDelimiter opts)
+    (encBackslashEscaping opts) (toRecord r)
     Mon.<> Encoding.recordSep (encUseCrLf opts)
 
 -- | Like 'encodeNamedRecord', but lets you customize how the CSV data
@@ -61,6 +62,7 @@ encodeNamedRecordWith :: ToNamedRecord a =>
                          EncodeOptions -> Header -> a -> Builder.Builder
 encodeNamedRecordWith opts hdr nr =
     Encoding.encodeNamedRecord hdr (encQuoting opts) (encDelimiter opts)
+    (encBackslashEscaping opts)
     (toNamedRecord nr) Mon.<> Encoding.recordSep (encUseCrLf opts)
 
 -- | Like 'encodeDefaultOrderedNamedRecord', but lets you customize

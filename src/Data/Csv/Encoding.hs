@@ -211,15 +211,20 @@ data EncodeOptions = EncodeOptions
 
       -- | What kind of quoting should be applied to text fields.
     , encQuoting :: !Quoting
+
+      -- | Escaping mode. @True@ for escaping with backslash (@\\"@, @\\\\@)
+      -- and @False@ for RFC-compliant @""@ escaping.
+    , encBackslashEscaping :: !Bool
     } deriving (Eq, Show)
 
 -- | Encoding options for CSV files.
 defaultEncodeOptions :: EncodeOptions
 defaultEncodeOptions = EncodeOptions
-    { encDelimiter     = 44  -- comma
-    , encUseCrLf       = True
-    , encIncludeHeader = True
-    , encQuoting       = QuoteMinimal
+    { encDelimiter         = 44  -- comma
+    , encUseCrLf           = True
+    , encIncludeHeader     = True
+    , encQuoting           = QuoteMinimal
+    , encBackslashEscaping = False
     }
 
 -- | Like 'encode', but lets you customize how the CSV data is
@@ -230,6 +235,7 @@ encodeWith opts
         toLazyByteString
         . unlines (recordSep (encUseCrLf opts))
         . map (encodeRecord (encQuoting opts) (encDelimiter opts)
+                            (encBackslashEscaping opts)
               . toRecord)
     | otherwise = encodeOptionsError
 {-# INLINE encodeWith #-}
@@ -255,37 +261,45 @@ encodeOptionsError = error $ "Data.Csv: " ++
 
 -- | Encode a single record, without the trailing record separator
 -- (i.e. newline).
-encodeRecord :: Quoting -> Word8 -> Record -> Builder
-encodeRecord qtng delim = mconcat . intersperse (word8 delim)
-                     . map byteString . map (escape qtng delim) . V.toList
+encodeRecord :: Quoting -> Word8 -> Bool -> Record -> Builder
+encodeRecord qtng delim bkEsc =
+    mconcat . intersperse (word8 delim)
+            . map byteString
+            . map (escape qtng delim bkEsc) . V.toList
 {-# INLINE encodeRecord #-}
 
 -- | Encode a single named record, without the trailing record
 -- separator (i.e. newline), using the given field order.
-encodeNamedRecord :: Header -> Quoting -> Word8 -> NamedRecord -> Builder
-encodeNamedRecord hdr qtng delim =
-    encodeRecord qtng delim . namedRecordToRecord hdr
+encodeNamedRecord :: Header -> Quoting -> Word8 -> Bool -> NamedRecord -> Builder
+encodeNamedRecord hdr qtng delim bkEsc =
+    encodeRecord qtng delim bkEsc . namedRecordToRecord hdr
+
+addCharQuoteEsc :: Builder -> Word8 -> Builder
+addCharQuoteEsc acc b =
+    acc <> if b == 34 then byteString "\"\"" else word8 b
+
+addCharBkEsc :: Builder -> Word8 -> Builder
+addCharBkEsc acc b =
+    acc <> case b of 34 -> byteString "\\\""
+                     92 -> byteString "\\\\"
+                     _  -> word8 b
 
 -- TODO: Optimize
-escape :: Quoting -> Word8 -> B.ByteString -> B.ByteString
-escape !qtng !delim !s
+escape :: Quoting -> Word8 -> Bool -> B.ByteString -> B.ByteString
+escape !qtng !delim !bkEsc !s
     | (qtng == QuoteMinimal &&
         B.any (\ b -> b == dquote || b == delim || b == nl || b == cr) s
       ) || qtng == QuoteAll
          = toStrict . toLazyByteString $
             word8 dquote
-            <> B.foldl
-                (\ acc b -> acc <> if b == dquote
-                    then byteString "\"\""
-                    else word8 b)
-                mempty
-                s
+            <> B.foldl addCh mempty s
             <> word8 dquote
     | otherwise = s
   where
     dquote = 34
     nl     = 10
     cr     = 13
+    addCh  = if bkEsc then addCharBkEsc else addCharQuoteEsc
 
 -- | Like 'encodeByName', but lets you customize how the CSV data is
 -- encoded.
@@ -297,10 +311,12 @@ encodeByNameWith opts hdr v
     | otherwise = encodeOptionsError
   where
     rows False = records
-    rows True  = encodeRecord (encQuoting opts) (encDelimiter opts) hdr <>
+    rows True  = encodeRecord (encQuoting opts) (encDelimiter opts)
+                              (encBackslashEscaping opts) hdr <>
                  recordSep (encUseCrLf opts) <> records
     records = unlines (recordSep (encUseCrLf opts))
               . map (encodeNamedRecord hdr (encQuoting opts) (encDelimiter opts)
+                                           (encBackslashEscaping opts)
                      . toNamedRecord)
               $ v
 {-# INLINE encodeByNameWith #-}
@@ -317,10 +333,12 @@ encodeDefaultOrderedByNameWith opts v
   where
     hdr = (Conversion.headerOrder (undefined :: a))
     rows False = records
-    rows True  = encodeRecord (encQuoting opts) (encDelimiter opts) hdr <>
+    rows True  = encodeRecord (encQuoting opts) (encDelimiter opts)
+                              (encBackslashEscaping opts) hdr <>
                  recordSep (encUseCrLf opts) <> records
     records = unlines (recordSep (encUseCrLf opts))
               . map (encodeNamedRecord hdr (encQuoting opts) (encDelimiter opts)
+                                           (encBackslashEscaping opts)
                      . toNamedRecord)
               $ v
 {-# INLINE encodeDefaultOrderedByNameWith #-}
